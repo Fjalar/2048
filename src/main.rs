@@ -1,4 +1,6 @@
 use bevy::asset::AssetMetaCheck;
+use bevy::input::ButtonState;
+use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowResolution};
 use itertools::Itertools;
@@ -6,6 +8,23 @@ use rand::seq::IteratorRandom;
 
 #[derive(Resource)]
 struct Board([[u32; 4]; 4]);
+
+#[derive(Component)]
+struct Index {
+    i: usize,
+    j: usize,
+}
+
+#[derive(Event)]
+struct Reset;
+
+#[derive(Event)]
+enum MoveDirection {
+    Up,
+    Down,
+    Left,
+    Right,
+}
 
 fn main() {
     App::new()
@@ -27,6 +46,17 @@ fn main() {
                 }),
         )
         .add_systems(Startup, setup)
+        .add_event::<Reset>()
+        .add_event::<MoveDirection>()
+        .add_systems(
+            Update,
+            (
+                keyboard_system,
+                new_board.before(update_visuals),
+                make_move.before(update_visuals),
+                update_visuals,
+            ),
+        )
         .insert_resource(Board([[0; 4]; 4]))
         .run();
 }
@@ -37,17 +67,12 @@ fn setup(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
     window_query: Query<&Window, With<PrimaryWindow>>,
-    mut board: ResMut<Board>,
+    board: ResMut<Board>,
+    mut events: EventWriter<Reset>,
 ) {
     commands.spawn(Camera2d);
 
-    let rng = &mut rand::rng();
-
-    let first_ones = (0..4).cartesian_product(0..4).choose_multiple(rng, 2);
-
-    for (i, j) in first_ones {
-        board.0[i][j] = 1;
-    }
+    events.write(Reset);
 
     let window = window_query.single().unwrap();
     let (width, height) = (window.width(), window.height());
@@ -67,19 +92,104 @@ fn setup(
                 MeshMaterial2d(materials.add(ColorMaterial::from_color(Color::WHITE)));
 
             commands
-                .spawn((square, white_material, Transform::from_xyz(x, y, 0.0)))
-                .with_child((
+                .spawn((
                     Text2d::new(format!("{}", board.0[i][j])),
                     TextFont::default(),
                     TextLayout::new_with_justify(JustifyText::Justified),
-                    Transform::from_scale(Vec3::new(1.0, 1.0, 1.0)),
+                    Transform::from_xyz(x, y, 0.0),
                     TextColor::BLACK,
-                    if board.0[i][j] == 0 {
-                        Visibility::Hidden
-                    } else {
-                        Visibility::Visible
-                    },
-                ));
+                    Index { i, j },
+                ))
+                .with_child((square, white_material));
+        }
+    }
+}
+
+fn keyboard_system(
+    mut keyboard_events: EventReader<KeyboardInput>,
+    mut reset_event: EventWriter<Reset>,
+    mut move_event: EventWriter<MoveDirection>,
+) {
+    for event in keyboard_events.read() {
+        if event.state == ButtonState::Pressed {
+            match event.key_code {
+                KeyCode::ArrowUp | KeyCode::KeyW => {
+                    move_event.write(MoveDirection::Up);
+                }
+                KeyCode::ArrowDown | KeyCode::KeyS => {
+                    move_event.write(MoveDirection::Down);
+                }
+                KeyCode::ArrowLeft | KeyCode::KeyA => {
+                    move_event.write(MoveDirection::Left);
+                }
+                KeyCode::ArrowRight | KeyCode::KeyD => {
+                    move_event.write(MoveDirection::Right);
+                }
+
+                KeyCode::KeyR => {
+                    reset_event.write(Reset);
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+fn make_move(mut events: EventReader<MoveDirection>, mut board: ResMut<Board>) {
+    for event in events.read() {
+        let (i_delta, j_delta): (i32, i32) = match event {
+            MoveDirection::Up => (0, 1),
+            MoveDirection::Down => (0, -1),
+            MoveDirection::Left => (-1, 0),
+            MoveDirection::Right => (1, 0),
+        };
+
+        let mut board_changed = true;
+
+        while board_changed {
+            board_changed = false;
+            for j in 0i32..4 {
+                for i in 0i32..4 {
+                    if board.0[i as usize][j as usize] != 0 {
+                        let (neighbour_i, neighbour_j) = (i + i_delta, j + j_delta);
+                        if (0..4).contains(&neighbour_i) & (0..4).contains(&neighbour_j)
+                            && board.0[neighbour_i as usize][neighbour_j as usize] == 0
+                        {
+                            board.0[neighbour_i as usize][neighbour_j as usize] =
+                                board.0[i as usize][j as usize];
+                            board.0[i as usize][j as usize] = 0;
+                            board_changed = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn new_board(mut events: EventReader<Reset>, mut board: ResMut<Board>) {
+    if !events.is_empty() {
+        events.clear();
+        let rng = &mut rand::rng();
+
+        board.0 = [[0; 4]; 4];
+
+        let first_ones = (0..4).cartesian_product(0..4).choose_multiple(rng, 2);
+
+        for (i, j) in first_ones {
+            board.0[i][j] = 1;
+        }
+    }
+}
+
+fn update_visuals(boxes: Query<(&Index, &mut Visibility, &mut Text2d)>, board: Res<Board>) {
+    for (index, mut visibility, mut text) in boxes {
+        let value = board.0[index.i][index.j];
+        if value == 0 {
+            *visibility = Visibility::Hidden;
+        } else {
+            text.0 = format!("{}", value);
+            *visibility = Visibility::Visible;
         }
     }
 }
