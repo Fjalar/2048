@@ -1,6 +1,8 @@
 use bevy::asset::AssetMetaCheck;
 use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowResolution};
+use itertools::Itertools;
+use rand::seq::IteratorRandom;
 
 #[derive(Resource)]
 struct Board([[u32; 4]; 4]);
@@ -39,6 +41,14 @@ fn setup(
 ) {
     commands.spawn(Camera2d);
 
+    let rng = &mut rand::rng();
+
+    let first_ones = (0..4).cartesian_product(0..4).choose_multiple(rng, 2);
+
+    for (i, j) in first_ones {
+        board.0[i][j] = 1;
+    }
+
     let window = window_query.single().unwrap();
     let (width, height) = (window.width(), window.height());
 
@@ -64,6 +74,11 @@ fn setup(
                     TextLayout::new_with_justify(JustifyText::Justified),
                     Transform::from_scale(Vec3::new(1.0, 1.0, 1.0)),
                     TextColor::BLACK,
+                    if board.0[i][j] == 0 {
+                        Visibility::Hidden
+                    } else {
+                        Visibility::Visible
+                    },
                 ));
         }
     }
