@@ -146,6 +146,7 @@ fn make_move(mut events: EventReader<MoveDirection>, mut board: ResMut<Board>) {
 
         let mut board_changed = true;
 
+        // move all tiles the desired direction until no tiles move
         while board_changed {
             board_changed = false;
             for j in 0i32..4 {
@@ -163,6 +164,35 @@ fn make_move(mut events: EventReader<MoveDirection>, mut board: ResMut<Board>) {
                     }
                 }
             }
+        }
+
+        // merge numbers, just duplicate of the above code
+        for j in 0i32..4 {
+            for i in 0i32..4 {
+                let first_value = board.0[i as usize][j as usize];
+                if first_value != 0 {
+                    let (neighbour_i, neighbour_j) = (i + i_delta, j + j_delta);
+                    if (0..4).contains(&neighbour_i) & (0..4).contains(&neighbour_j)
+                        && board.0[neighbour_i as usize][neighbour_j as usize] == first_value
+                    {
+                        board.0[neighbour_i as usize][neighbour_j as usize] =
+                            2 * board.0[i as usize][j as usize];
+                        board.0[i as usize][j as usize] = 0;
+                    }
+                }
+            }
+        }
+
+        let rng = &mut rand::rng();
+
+        if let Some((i, j)) = (0..4)
+            .cartesian_product(0..4)
+            .filter(|&(i, j)| board.0[i][j] == 0)
+            .choose(rng)
+        {
+            board.0[i][j] = 1;
+        } else {
+            // game over? not necessarily, could still merge some tiles
         }
     }
 }
