@@ -189,45 +189,47 @@ fn make_move(
                 }
             }
         }
+        if anything_changed {
+            let rng = &mut rand::rng();
 
-        let rng = &mut rand::rng();
+            if let Some((i, j)) = (0..SQUARES_X)
+                .cartesian_product(0..SQUARES_Y)
+                .filter(|&(i, j)| board.0[i][j].is_none())
+                .choose(rng)
+            {
+                let (x, y) = (
+                    ((i as f32) - ((SQUARES_X as f32 - 1.0) / 2.0)) * dims.width / SQUARES_X as f32,
+                    ((j as f32) - ((SQUARES_Y as f32 - 1.0) / 2.0)) * dims.height
+                        / SQUARES_Y as f32,
+                );
 
-        if let Some((i, j)) = (0..SQUARES_X)
-            .cartesian_product(0..SQUARES_Y)
-            .filter(|&(i, j)| board.0[i][j].is_none())
-            .choose(rng)
-        {
-            let (x, y) = (
-                ((i as f32) - ((SQUARES_X as f32 - 1.0) / 2.0)) * dims.width / SQUARES_X as f32,
-                ((j as f32) - ((SQUARES_Y as f32 - 1.0) / 2.0)) * dims.height / SQUARES_Y as f32,
-            );
+                let square = Mesh2d(meshes.add(Rectangle {
+                    half_size: Vec2::new(
+                        dims.width / (2.0 * SQUARES_X as f32) - 10.0,
+                        dims.height / (2.0 * SQUARES_Y as f32) - 10.0,
+                    ),
+                }));
 
-            let square = Mesh2d(meshes.add(Rectangle {
-                half_size: Vec2::new(
-                    dims.width / (2.0 * SQUARES_X as f32) - 10.0,
-                    dims.height / (2.0 * SQUARES_Y as f32) - 10.0,
-                ),
-            }));
+                let white_material =
+                    MeshMaterial2d(materials.add(ColorMaterial::from_color(Color::WHITE)));
 
-            let white_material =
-                MeshMaterial2d(materials.add(ColorMaterial::from_color(Color::WHITE)));
-
-            board.0[i][j] = Some(
-                commands
-                    .spawn((
-                        Text2d::new(format!("{}", 0)),
-                        TextFont::default(),
-                        TextLayout::new_with_justify(JustifyText::Justified),
-                        Transform::from_xyz(x, y, 0.0),
-                        TextColor::BLACK,
-                        Index { i, j },
-                        Value(1),
-                    ))
-                    .with_child((square, white_material))
-                    .id(),
-            );
-        } else {
-            // game over? not necessarily, could still merge some tiles
+                board.0[i][j] = Some(
+                    commands
+                        .spawn((
+                            Text2d::new(format!("{}", 0)),
+                            TextFont::default(),
+                            TextLayout::new_with_justify(JustifyText::Justified),
+                            Transform::from_xyz(x, y, 0.0),
+                            TextColor::BLACK,
+                            Index { i, j },
+                            Value(1),
+                        ))
+                        .with_child((square, white_material))
+                        .id(),
+                );
+            } else {
+                // game over? not necessarily, could still merge some tiles
+            }
         }
     }
 }
