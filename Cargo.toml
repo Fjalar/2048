@@ -17,7 +17,9 @@ opt-level = 3
 
 [dependencies]
 bevy = "0.16"
+bevy_rand = { version = "0.11", features = ["wyrand"] }
 itertools = "0.14.0"
+getrandom = { version = "0.3", features = ["wasm_js"] }
 rand = "0.9.1"
 
 # These lints may be important signals about code quality, but normal Bevy code

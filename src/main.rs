@@ -3,6 +3,9 @@ use bevy::input::ButtonState;
 use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowResolution};
+use bevy_rand::global::GlobalEntropy;
+use bevy_rand::plugin::EntropyPlugin;
+use bevy_rand::prelude::WyRand;
 use itertools::Itertools;
 use rand::seq::IteratorRandom;
 
@@ -47,7 +50,7 @@ enum MoveDirection {
 
 fn main() {
     App::new()
-        .add_plugins(
+        .add_plugins((
             DefaultPlugins
                 .set(AssetPlugin {
                     // Wasm builds will check for meta files (that don't exist) if this isn't set.
@@ -63,7 +66,8 @@ fn main() {
                     }),
                     ..default()
                 }),
-        )
+            EntropyPlugin::<WyRand>::default(),
+        ))
         .add_systems(Startup, setup)
         .add_event::<Reset>()
         .add_event::<MoveDirection>()
@@ -134,6 +138,7 @@ fn make_move(
     mut board: ResMut<Board>,
     mut index_query: Query<&mut Index>,
     mut value_query: Query<&mut Value>,
+    mut rng: GlobalEntropy<WyRand>,
     dims: Res<Dims>,
 ) {
     for event in events.read() {
@@ -215,12 +220,10 @@ fn make_move(
             }
         }
         if anything_changed {
-            let rng = &mut rand::rng();
-
             if let Some((i, j)) = (0..SQUARES_X)
                 .cartesian_product(0..SQUARES_Y)
                 .filter(|&(i, j)| board.0[i][j].is_none())
-                .choose(rng)
+                .choose(&mut rng)
             {
                 let (x, y) = (
                     ((i as f32) - ((SQUARES_X as f32 - 1.0) / 2.0)) * dims.width / SQUARES_X as f32,
@@ -265,11 +268,11 @@ fn new_board(
     mut board: ResMut<Board>,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    mut rng: GlobalEntropy<WyRand>,
     dims: Res<Dims>,
 ) {
     if !events.is_empty() {
         events.clear();
-        let rng = &mut rand::rng();
 
         board
             .0
@@ -282,7 +285,7 @@ fn new_board(
 
         let first_ones = (0..SQUARES_X)
             .cartesian_product(0..SQUARES_Y)
-            .choose_multiple(rng, 2);
+            .choose_multiple(&mut rng, 2);
 
         for (i, j) in first_ones {
             let (x, y) = (
