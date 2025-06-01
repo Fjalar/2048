@@ -25,6 +25,13 @@ struct Index {
 }
 
 #[derive(Component)]
+struct AnimationThingy {
+    origin_i: usize,
+    origin_j: usize,
+    frames_left: u32,
+}
+
+#[derive(Component)]
 struct Value(u32);
 
 #[derive(Event)]
@@ -125,17 +132,31 @@ fn make_move(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut events: EventReader<MoveDirection>,
     mut board: ResMut<Board>,
-    mut q: Query<&mut Index>,
-    mut q2: Query<&mut Value>,
+    mut index_query: Query<&mut Index>,
+    mut value_query: Query<&mut Value>,
     dims: Res<Dims>,
 ) {
     for event in events.read() {
+        let mut anything_changed = false;
+
         let (i_delta, j_delta): (i32, i32) = match event {
             MoveDirection::Up => (0, 1),
             MoveDirection::Down => (0, -1),
             MoveDirection::Left => (-1, 0),
             MoveDirection::Right => (1, 0),
         };
+
+        for i in 0..SQUARES_X {
+            for j in 0..SQUARES_Y {
+                if let Some(ent) = board.0[i][j] {
+                    commands.entity(ent).insert(AnimationThingy {
+                        origin_i: i,
+                        origin_j: j,
+                        frames_left: 30,
+                    });
+                }
+            }
+        }
 
         let mut board_changed = true;
 
@@ -151,13 +172,14 @@ fn make_move(
                             && board.0[neighbour_i as usize][neighbour_j as usize].is_none()
                         {
                             board.0[neighbour_i as usize][neighbour_j as usize] = board.0[i][j];
-                            if let Ok(mut idx) = q.get_mut(current) {
+                            if let Ok(mut idx) = index_query.get_mut(current) {
                                 *idx = Index {
                                     i: neighbour_i as usize,
                                     j: neighbour_j as usize,
                                 };
                                 board.0[i][j] = None;
                                 board_changed = true;
+                                anything_changed = true;
                             } else {
                                 println!("couldn'd find the index entity in move");
                             }
@@ -177,11 +199,14 @@ fn make_move(
                     {
                         if let Some(neighbour) = board.0[neighbour_i as usize][neighbour_j as usize]
                         {
-                            if let Ok([val1, mut val2]) = q2.get_many_mut([current, neighbour]) {
+                            if let Ok([val1, mut val2]) =
+                                value_query.get_many_mut([current, neighbour])
+                            {
                                 if val1.0 == val2.0 {
                                     val2.0 *= 2;
                                     board.0[i][j] = None;
                                     commands.entity(current).despawn();
+                                    anything_changed = true;
                                 }
                             }
                         }
@@ -293,15 +318,47 @@ fn new_board(
     }
 }
 
-fn update_visuals(boxes: Query<(&Index, &mut Transform, &Value, &mut Text2d)>, dims: Res<Dims>) {
-    for (index, mut transform, value, mut text) in boxes {
-        let (x, y) = (
-            ((index.i as f32) - ((SQUARES_X as f32 - 1.0) / 2.0)) * dims.width / SQUARES_X as f32,
-            ((index.j as f32) - ((SQUARES_Y as f32 - 1.0) / 2.0)) * dims.height / SQUARES_Y as f32,
-        );
-
+fn update_visuals(
+    mut commands: Commands,
+    texts: Query<(&Value, &mut Text2d)>,
+    animations: Query<(Entity, &Index, &mut AnimationThingy, &mut Transform)>,
+    dims: Res<Dims>,
+) {
+    for (value, mut text) in texts {
         text.0 = format!("{}", value.0);
+    }
 
-        transform.translation = Vec3 { x, y, z: 0.0 };
+    for (ent, index, mut animation_thingy, mut transform) in animations {
+        if animation_thingy.frames_left > 0 {
+            let (x_destination, y_destination) = (
+                ((index.i as f32) - ((SQUARES_X as f32 - 1.0) / 2.0)) * dims.width
+                    / SQUARES_X as f32,
+                ((index.j as f32) - ((SQUARES_Y as f32 - 1.0) / 2.0)) * dims.height
+                    / SQUARES_Y as f32,
+            );
+
+            let (x_origin, y_origin) = (
+                ((animation_thingy.origin_i as f32) - ((SQUARES_X as f32 - 1.0) / 2.0))
+                    * dims.width
+                    / SQUARES_X as f32,
+                ((animation_thingy.origin_j as f32) - ((SQUARES_Y as f32 - 1.0) / 2.0))
+                    * dims.height
+                    / SQUARES_Y as f32,
+            );
+
+            let x = x_origin
+                + (x_destination - x_origin)
+                    * (-(animation_thingy.frames_left as f32 / 30.0 - 1.0));
+
+            let y = y_origin
+                + (y_destination - y_origin)
+                    * (-(animation_thingy.frames_left as f32 / 30.0 - 1.0));
+
+            animation_thingy.frames_left -= 1;
+
+            transform.translation = Vec3 { x, y, z: 0.0 };
+        } else {
+            commands.entity(ent).remove::<AnimationThingy>();
+        }
     }
 }
