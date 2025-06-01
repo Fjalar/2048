@@ -6,8 +6,17 @@ use bevy::window::{PrimaryWindow, WindowResolution};
 use itertools::Itertools;
 use rand::seq::IteratorRandom;
 
+const SQUARES_X: usize = 4;
+const SQUARES_Y: usize = 4;
+
 #[derive(Resource)]
-struct Board([[u32; 4]; 4]);
+struct Board([[u32; SQUARES_Y]; SQUARES_X]);
+
+#[derive(Resource, Default)]
+struct Dims {
+    width: f32,
+    height: f32,
+}
 
 #[derive(Component)]
 struct Index {
@@ -57,7 +66,8 @@ fn main() {
                 update_visuals,
             ),
         )
-        .insert_resource(Board([[0; 4]; 4]))
+        .insert_resource(Board([[0; SQUARES_Y]; SQUARES_X]))
+        .insert_resource(Dims::default())
         .run();
 }
 
@@ -68,6 +78,7 @@ fn setup(
     mut materials: ResMut<Assets<ColorMaterial>>,
     window_query: Query<&Window, With<PrimaryWindow>>,
     board: ResMut<Board>,
+    mut dims: ResMut<Dims>,
     mut events: EventWriter<Reset>,
 ) {
     commands.spawn(Camera2d);
@@ -75,17 +86,20 @@ fn setup(
     events.write(Reset);
 
     let window = window_query.single().unwrap();
-    let (width, height) = (window.width(), window.height());
+    (dims.width, dims.height) = (window.width(), window.height());
 
-    for i in 0..4 {
-        for j in 0..4 {
+    for i in 0..SQUARES_X {
+        for j in 0..SQUARES_Y {
             let (x, y) = (
-                ((i as f32) - 1.5) * width / 4.0,
-                ((j as f32) - 1.5) * height / 4.0,
+                ((i as f32) - ((SQUARES_X as f32 - 1.0) / 2.0)) * dims.width / SQUARES_X as f32,
+                ((j as f32) - ((SQUARES_Y as f32 - 1.0) / 2.0)) * dims.height / SQUARES_Y as f32,
             );
 
             let square = Mesh2d(meshes.add(Rectangle {
-                half_size: Vec2::new(width / 8.0 - 10.0, height / 8.0 - 10.0),
+                half_size: Vec2::new(
+                    dims.width / (2.0 * SQUARES_X as f32) - 10.0,
+                    dims.height / (2.0 * SQUARES_Y as f32) - 10.0,
+                ),
             }));
 
             let white_material =
@@ -149,16 +163,16 @@ fn make_move(mut events: EventReader<MoveDirection>, mut board: ResMut<Board>) {
         // move all tiles the desired direction until no tiles move
         while board_changed {
             board_changed = false;
-            for j in 0i32..4 {
-                for i in 0i32..4 {
-                    if board.0[i as usize][j as usize] != 0 {
-                        let (neighbour_i, neighbour_j) = (i + i_delta, j + j_delta);
-                        if (0..4).contains(&neighbour_i) & (0..4).contains(&neighbour_j)
+            for i in 0..SQUARES_X {
+                for j in 0..SQUARES_Y {
+                    if board.0[i][j] != 0 {
+                        let (neighbour_i, neighbour_j) = (i as i32 + i_delta, j as i32 + j_delta);
+                        if (0..SQUARES_X).contains(&(neighbour_i as usize))
+                            & (0..SQUARES_Y).contains(&(neighbour_j as usize))
                             && board.0[neighbour_i as usize][neighbour_j as usize] == 0
                         {
-                            board.0[neighbour_i as usize][neighbour_j as usize] =
-                                board.0[i as usize][j as usize];
-                            board.0[i as usize][j as usize] = 0;
+                            board.0[neighbour_i as usize][neighbour_j as usize] = board.0[i][j];
+                            board.0[i][j] = 0;
                             board_changed = true;
                         }
                     }
@@ -167,17 +181,17 @@ fn make_move(mut events: EventReader<MoveDirection>, mut board: ResMut<Board>) {
         }
 
         // merge numbers, just duplicate of the above code
-        for j in 0i32..4 {
-            for i in 0i32..4 {
-                let first_value = board.0[i as usize][j as usize];
+        for i in 0..SQUARES_X {
+            for j in 0..SQUARES_Y {
+                let first_value = board.0[i][j];
                 if first_value != 0 {
-                    let (neighbour_i, neighbour_j) = (i + i_delta, j + j_delta);
-                    if (0..4).contains(&neighbour_i) & (0..4).contains(&neighbour_j)
+                    let (neighbour_i, neighbour_j) = (i as i32 + i_delta, j as i32 + j_delta);
+                    if (0..SQUARES_X).contains(&(neighbour_i as usize))
+                        & (0..SQUARES_Y).contains(&(neighbour_j as usize))
                         && board.0[neighbour_i as usize][neighbour_j as usize] == first_value
                     {
-                        board.0[neighbour_i as usize][neighbour_j as usize] =
-                            2 * board.0[i as usize][j as usize];
-                        board.0[i as usize][j as usize] = 0;
+                        board.0[neighbour_i as usize][neighbour_j as usize] = 2 * board.0[i][j];
+                        board.0[i][j] = 0;
                     }
                 }
             }
@@ -185,8 +199,8 @@ fn make_move(mut events: EventReader<MoveDirection>, mut board: ResMut<Board>) {
 
         let rng = &mut rand::rng();
 
-        if let Some((i, j)) = (0..4)
-            .cartesian_product(0..4)
+        if let Some((i, j)) = (0..SQUARES_X)
+            .cartesian_product(0..SQUARES_Y)
             .filter(|&(i, j)| board.0[i][j] == 0)
             .choose(rng)
         {
@@ -202,9 +216,11 @@ fn new_board(mut events: EventReader<Reset>, mut board: ResMut<Board>) {
         events.clear();
         let rng = &mut rand::rng();
 
-        board.0 = [[0; 4]; 4];
+        board.0 = [[0; SQUARES_Y]; SQUARES_X];
 
-        let first_ones = (0..4).cartesian_product(0..4).choose_multiple(rng, 2);
+        let first_ones = (0..SQUARES_X)
+            .cartesian_product(0..SQUARES_Y)
+            .choose_multiple(rng, 2);
 
         for (i, j) in first_ones {
             board.0[i][j] = 1;
