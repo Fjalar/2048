@@ -19,9 +19,26 @@ opt-level = 3
 bevy = "0.16"
 bevy_rand = { version = "0.11", features = ["wyrand"] }
 itertools = "0.14.0"
-getrandom = { version = "0.3", features = ["wasm_js"] }
 rand = "0.9.1"
 bevy_easings = "0.16.0"
+log = { version = "*", features = [
+    "max_level_debug",
+    "release_max_level_warn",
+] }
+
+
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+getrandom = { version = "0.3", features = ["wasm_js"] }
+
+[profile.release]
+codegen-units = 1
+lto = "thin"
+
+
+[target.'cfg(target_arch = "wasm32")'.profile.release]
+inherits = "release"
+opt-level = "s"
+strip = "debuginfo"
 
 # These lints may be important signals about code quality, but normal Bevy code
 # commonly triggers them and the CI workflow treats them as errors, so we've
