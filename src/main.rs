@@ -3,11 +3,13 @@ use bevy::input::ButtonState;
 use bevy::input::keyboard::KeyboardInput;
 use bevy::prelude::*;
 use bevy::window::{PrimaryWindow, WindowResolution};
+use bevy_easings::{self, Ease, EaseMethod, EasingType, EasingsPlugin};
 use bevy_rand::global::GlobalEntropy;
 use bevy_rand::plugin::EntropyPlugin;
 use bevy_rand::prelude::WyRand;
 use itertools::Itertools;
 use rand::seq::IteratorRandom;
+use std::time::Duration;
 
 const SQUARES_X: usize = 4;
 const SQUARES_Y: usize = 4;
@@ -28,11 +30,16 @@ struct Index {
 }
 
 #[derive(Component)]
-struct AnimationThingy {
-    origin_i: usize,
-    origin_j: usize,
-    frames_left: u32,
-}
+struct AnimateMove;
+
+#[derive(Component)]
+struct AnimateSpawn;
+
+#[derive(Component)]
+struct AnimateMergeInto;
+
+#[derive(Component)]
+struct DespawnLater(Timer);
 
 #[derive(Component)]
 struct Value(u32);
@@ -67,6 +74,7 @@ fn main() {
                     ..default()
                 }),
             EntropyPlugin::<WyRand>::default(),
+            EasingsPlugin::default(),
         ))
         .add_systems(Startup, setup)
         .add_event::<Reset>()
@@ -77,6 +85,7 @@ fn main() {
                 keyboard_system,
                 new_board.before(update_visuals),
                 make_move.before(update_visuals),
+                despawn_later,
                 update_visuals,
             ),
         )
@@ -151,17 +160,17 @@ fn make_move(
             MoveDirection::Right => (1, 0),
         };
 
-        for i in 0..SQUARES_X {
-            for j in 0..SQUARES_Y {
-                if let Some(ent) = board.0[i][j] {
-                    commands.entity(ent).insert(AnimationThingy {
-                        origin_i: i,
-                        origin_j: j,
-                        frames_left: 30,
-                    });
-                }
-            }
-        }
+        // for i in 0..SQUARES_X {
+        //     for j in 0..SQUARES_Y {
+        //         if let Some(ent) = board.0[i][j] {
+        //             commands.entity(ent).insert(AnimationThingy {
+        //                 origin_i: i,
+        //                 origin_j: j,
+        //                 frames_left: 30,
+        //             });
+        //         }
+        //     }
+        // }
 
         let mut board_changed = true;
 
@@ -182,6 +191,7 @@ fn make_move(
                                     i: neighbour_i as usize,
                                     j: neighbour_j as usize,
                                 };
+                                commands.entity(current).insert(AnimateMove);
                                 board.0[i][j] = None;
                                 board_changed = true;
                                 anything_changed = true;
@@ -210,9 +220,24 @@ fn make_move(
                                 if val1.0 == val2.0 {
                                     val2.0 *= 2;
                                     board.0[i][j] = None;
-                                    commands.entity(current).despawn();
+                                    commands
+                                        .entity(current)
+                                        .insert(Index {
+                                            i: neighbour_i as usize,
+                                            j: neighbour_j as usize,
+                                        })
+                                        .insert(AnimateMergeInto)
+                                        .insert(DespawnLater(Timer::from_seconds(
+                                            0.2,
+                                            TimerMode::Once,
+                                        )));
                                     anything_changed = true;
                                 }
+                            } else {
+                                println!("{:?}", board.0);
+                                unreachable!(
+                                    "couldn't find the value components of entities in merge"
+                                )
                             }
                         }
                     }
@@ -247,12 +272,14 @@ fn make_move(
                             Text2d::new(format!("{}", 0)),
                             TextFont::default(),
                             TextLayout::new_with_justify(JustifyText::Justified),
-                            Transform::from_xyz(x, y, 0.0),
+                            Transform::from_xyz(x, y, 0.0).with_scale(Vec3::ZERO),
                             TextColor::BLACK,
                             Index { i, j },
                             Value(1),
+                            AnimateSpawn,
+                            square,
+                            white_material,
                         ))
-                        .with_child((square, white_material))
                         .id(),
                 );
             } else {
@@ -313,8 +340,9 @@ fn new_board(
                         TextColor::BLACK,
                         Index { i, j },
                         Value(1),
+                        square,
+                        white_material,
                     ))
-                    .with_child((square, white_material))
                     .id(),
             );
         }
@@ -324,44 +352,81 @@ fn new_board(
 fn update_visuals(
     mut commands: Commands,
     texts: Query<(&Value, &mut Text2d)>,
-    animations: Query<(Entity, &Index, &mut AnimationThingy, &mut Transform)>,
+    animate_move: Query<
+        (Entity, &Index, &mut Transform),
+        (With<AnimateMove>, Without<AnimateSpawn>),
+    >,
+    animate_spawn: Query<(Entity, &Transform), (With<AnimateSpawn>, Without<AnimateMove>)>,
+    animate_merge: Query<
+        (Entity, &Index, &Transform),
+        (With<AnimateMergeInto>, Without<AnimateMove>),
+    >,
     dims: Res<Dims>,
 ) {
     for (value, mut text) in texts {
         text.0 = format!("{}", value.0);
     }
 
-    for (ent, index, mut animation_thingy, mut transform) in animations {
-        if animation_thingy.frames_left > 0 {
-            let (x_destination, y_destination) = (
-                ((index.i as f32) - ((SQUARES_X as f32 - 1.0) / 2.0)) * dims.width
-                    / SQUARES_X as f32,
-                ((index.j as f32) - ((SQUARES_Y as f32 - 1.0) / 2.0)) * dims.height
-                    / SQUARES_Y as f32,
-            );
+    for (ent, index, transform) in animate_move {
+        let (x_destination, y_destination) = (
+            ((index.i as f32) - ((SQUARES_X as f32 - 1.0) / 2.0)) * dims.width / SQUARES_X as f32,
+            ((index.j as f32) - ((SQUARES_Y as f32 - 1.0) / 2.0)) * dims.height / SQUARES_Y as f32,
+        );
 
-            let (x_origin, y_origin) = (
-                ((animation_thingy.origin_i as f32) - ((SQUARES_X as f32 - 1.0) / 2.0))
-                    * dims.width
-                    / SQUARES_X as f32,
-                ((animation_thingy.origin_j as f32) - ((SQUARES_Y as f32 - 1.0) / 2.0))
-                    * dims.height
-                    / SQUARES_Y as f32,
-            );
+        commands.entity(ent).insert(transform.ease_to(
+            Transform::from_xyz(x_destination, y_destination, 0.0),
+            EaseMethod::EaseFunction(bevy_easings::EaseFunction::QuadraticIn),
+            EasingType::Once {
+                duration: Duration::from_secs_f32(0.1),
+            },
+        ));
 
-            let x = x_origin
-                + (x_destination - x_origin)
-                    * (-(animation_thingy.frames_left as f32 / 30.0 - 1.0));
+        commands.entity(ent).remove::<AnimateMove>();
+    }
 
-            let y = y_origin
-                + (y_destination - y_origin)
-                    * (-(animation_thingy.frames_left as f32 / 30.0 - 1.0));
+    for (ent, transform) in animate_spawn {
+        commands
+            .entity(ent)
+            .insert(transform.with_scale(Vec3::ZERO).ease_to(
+                transform.with_scale(Vec3::ONE),
+                EaseMethod::EaseFunction(bevy_easings::EaseFunction::QuadraticIn),
+                EasingType::Once {
+                    duration: Duration::from_secs_f32(0.2),
+                },
+            ));
 
-            animation_thingy.frames_left -= 1;
+        commands.entity(ent).remove::<AnimateSpawn>();
+    }
 
-            transform.translation = Vec3 { x, y, z: 0.0 };
-        } else {
-            commands.entity(ent).remove::<AnimationThingy>();
+    for (ent, index, transform) in animate_merge {
+        let (x_destination, y_destination) = (
+            ((index.i as f32) - ((SQUARES_X as f32 - 1.0) / 2.0)) * dims.width / SQUARES_X as f32,
+            ((index.j as f32) - ((SQUARES_Y as f32 - 1.0) / 2.0)) * dims.height / SQUARES_Y as f32,
+        );
+
+        commands.entity(ent).insert(transform.ease_to(
+            Transform::from_xyz(x_destination, y_destination, 0.0).with_scale(Vec3::ZERO),
+            EaseMethod::EaseFunction(bevy_easings::EaseFunction::QuadraticIn),
+            EasingType::Once {
+                duration: Duration::from_secs_f32(0.1),
+            },
+        ));
+
+        commands.entity(ent).remove::<AnimateMergeInto>();
+    }
+}
+
+fn despawn_later(
+    mut commands: Commands,
+    query: Query<(Entity, &mut DespawnLater)>,
+    time: Res<Time>,
+) {
+    for (entity, mut timer) in query {
+        timer.0.tick(time.delta());
+
+        if timer.0.finished() {
+            println!("Despawned!");
+            commands.entity(entity).despawn();
         }
     }
 }
