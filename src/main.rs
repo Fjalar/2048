@@ -425,7 +425,6 @@ fn despawn_later(
         timer.0.tick(time.delta());
 
         if timer.0.finished() {
-            println!("Despawned!");
             commands.entity(entity).despawn();
         }
     }
