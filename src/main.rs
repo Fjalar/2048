@@ -145,14 +145,11 @@ fn make_move(
     mut materials: ResMut<Assets<ColorMaterial>>,
     mut events: EventReader<MoveDirection>,
     mut board: ResMut<Board>,
-    mut index_query: Query<&mut Index>,
     mut value_query: Query<&mut Value>,
     mut rng: GlobalEntropy<WyRand>,
     dims: Res<Dims>,
 ) {
     for event in events.read() {
-        let mut anything_changed = false;
-
         let (i_delta, j_delta): (i32, i32) = match event {
             MoveDirection::Up => (0, 1),
             MoveDirection::Down => (0, -1),
@@ -160,51 +157,57 @@ fn make_move(
             MoveDirection::Right => (1, 0),
         };
 
-        // for i in 0..SQUARES_X {
-        //     for j in 0..SQUARES_Y {
-        //         if let Some(ent) = board.0[i][j] {
-        //             commands.entity(ent).insert(AnimationThingy {
-        //                 origin_i: i,
-        //                 origin_j: j,
-        //                 frames_left: 30,
-        //             });
-        //         }
-        //     }
-        // }
+        let original_board = board.0;
 
-        let mut board_changed = true;
+        let mut transposed: [[Option<Entity>; SQUARES_X]; SQUARES_Y] = (0..SQUARES_Y)
+            .map(|i| board.0.iter().map(|row| row[i]).collect_array().unwrap())
+            .collect_array()
+            .unwrap();
 
-        // move all tiles the desired direction until no tiles move
-        while board_changed {
-            board_changed = false;
-            for i in 0..SQUARES_X {
-                for j in 0..SQUARES_Y {
-                    if let Some(current) = board.0[i][j] {
-                        let (neighbour_i, neighbour_j) = (i as i32 + i_delta, j as i32 + j_delta);
-                        if (0..SQUARES_X).contains(&(neighbour_i as usize))
-                            & (0..SQUARES_Y).contains(&(neighbour_j as usize))
-                            && board.0[neighbour_i as usize][neighbour_j as usize].is_none()
-                        {
-                            board.0[neighbour_i as usize][neighbour_j as usize] = board.0[i][j];
-                            if let Ok(mut idx) = index_query.get_mut(current) {
-                                *idx = Index {
-                                    i: neighbour_i as usize,
-                                    j: neighbour_j as usize,
-                                };
-                                commands.entity(current).insert(AnimateMove);
-                                board.0[i][j] = None;
-                                board_changed = true;
-                                anything_changed = true;
-                            } else {
-                                println!("couldn'd find the index entity in move");
-                            }
-                        }
-                    }
+        match event {
+            MoveDirection::Up => {
+                board
+                    .0
+                    .iter_mut()
+                    .for_each(|s| s.sort_by_key(|a| a.is_some()));
+            }
+            MoveDirection::Down => {
+                board
+                    .0
+                    .iter_mut()
+                    .for_each(|s| s.sort_by_key(|a| a.is_none()));
+            }
+            MoveDirection::Left => {
+                transposed
+                    .iter_mut()
+                    .for_each(|s| s.sort_by_key(|a| a.is_none()));
+                board.0 = (0..SQUARES_X)
+                    .map(|i| transposed.iter().map(|row| row[i]).collect_array().unwrap())
+                    .collect_array()
+                    .unwrap();
+            }
+            MoveDirection::Right => {
+                transposed
+                    .iter_mut()
+                    .for_each(|s| s.sort_by_key(|a| a.is_some()));
+                board.0 = (0..SQUARES_X)
+                    .map(|i| transposed.iter().map(|row| row[i]).collect_array().unwrap())
+                    .collect_array()
+                    .unwrap();
+            }
+        };
+
+        for i in 0..SQUARES_X {
+            for j in 0..SQUARES_Y {
+                if let Some(e) = board.0[i][j] {
+                    commands
+                        .entity(e)
+                        .insert(Index { i, j })
+                        .insert(AnimateMove);
                 }
             }
         }
 
-        // merge numbers, just duplicate of the above code
         for i in 0..SQUARES_X {
             for j in 0..SQUARES_Y {
                 if let Some(current) = board.0[i][j] {
@@ -231,7 +234,6 @@ fn make_move(
                                             0.2,
                                             TimerMode::Once,
                                         )));
-                                    anything_changed = true;
                                 }
                             } else {
                                 println!("{:?}", board.0);
@@ -244,7 +246,8 @@ fn make_move(
                 }
             }
         }
-        if anything_changed {
+
+        if board.0 != original_board {
             if let Some((i, j)) = (0..SQUARES_X)
                 .cartesian_product(0..SQUARES_Y)
                 .filter(|&(i, j)| board.0[i][j].is_none())
